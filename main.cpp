@@ -7,7 +7,7 @@
 #include "ethhdr.h"
 #include "arphdr.h"
 #include "getIpMac.h"
-
+// TODO 센더만 공격 할 수 있게 리팩토링 / ip 부분도 보면 좋다. / arp면 공격, ipv4면 전달 하자.
 #pragma pack(push, 1)
 struct EthArpPacket final 
 {
