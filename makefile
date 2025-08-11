@@ -12,9 +12,9 @@ ip.o: ip.h ip.cpp
 
 mac.o : mac.h mac.cpp
 
-getMyMac.o : getMyMac.h getMyMac.cpp
+getIpMac.o : getIpMac.h getIpMac.cpp
 
-arp-spoofing: main.o arphdr.o ethhdr.o ip.o mac.o getMyMac.o
+arp-spoofing: main.o arphdr.o ethhdr.o ip.o mac.o getIpMac.o
 	$(LINK.cc) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 clean:
